@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07060f">
+<title>Hinge diagnostics — iPhone Duo &amp; foldables</title>
+<style>
+  :root{--bg:#07060f;--card:#120f24;--ink:#e9e6ff;--dim:#9a94c4;--ok:#3df5c4;--no:#ff4f9a;--warn:#ffd34d}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+    padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 40px max(16px,env(safe-area-inset-left))}
+  h1{font-size:22px;margin:4px 0 2px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+  .grid{display:grid;gap:12px;grid-template-columns:1fr}
+  @media (min-width:640px){.grid{grid-template-columns:1fr 1fr}}
+  /* When spanning a real fold, put one column on each side of the hinge */
+  @media (horizontal-viewport-segments: 2){
+    .grid{grid-template-columns:calc(env(viewport-segment-width 0 0) - 24px) calc(env(viewport-segment-width 1 0) - 8px);
+      column-gap:calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0) + 32px)}
+  }
+  .card{background:var(--card);border:1px solid #ffffff1c;border-radius:18px;padding:14px 16px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 8px}
+  .big{font-size:44px;font-weight:800;letter-spacing:-.02em;line-height:1.05}
+  .big small{font-size:15px;font-weight:600;color:var(--dim);letter-spacing:0}
+  .ok{color:var(--ok)} .no{color:var(--no)} .warn{color:var(--warn)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:6px 4px;border-top:1px solid #ffffff12;vertical-align:top}
+  td:first-child{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-word}
+  td:last-child{text-align:right;white-space:nowrap;font-weight:600}
+  .viz{position:relative;height:120px;border-radius:12px;background:#0b0918;border:1px solid #ffffff14;overflow:hidden}
+  .seg{position:absolute;flex-direction:column;text-align:center;line-height:1.2;font-size:11px!important;border:2px solid var(--ok);background:#3df5c41a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ok)}
+  .hinge{position:absolute;background:var(--warn);opacity:.7}
+  .book{display:flex;justify-content:center;align-items:flex-end;height:110px;perspective:400px}
+  .leaf{width:70px;height:96px;background:linear-gradient(#3df5c4,#1a8f73);border-radius:6px;transform-origin:right center;transition:transform .4s}
+  .leaf.r{background:linear-gradient(#ff4f9a,#8f1a4f);transform-origin:left center}
+  button{font:inherit;font-weight:700;border:0;border-radius:999px;padding:10px 18px;background:var(--ok);color:#04131a;cursor:pointer}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#ffffff12;padding:1px 5px;border-radius:5px}
+  a{color:var(--ok)}
+  ol{padding-left:20px;margin:6px 0} li{margin:3px 0}
+  .log{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--dim);max-height:140px;overflow:auto;white-space:pre-wrap}
+  #cssProbe{position:absolute;width:0;height:0;overflow:hidden}
+</style>
+</head>
+<body>
+<h1>Hinge diagnostics</h1>
+<div class="sub">Live readout of everything this browser will tell a web page about a fold. Built for Safari on iPhone Duo, works on any browser. <a href="index.html">← Back to the game</a></div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Hinge angle</h2>
+    <div class="big" id="angle">—</div>
+    <div id="angleNote" class="sub" style="margin:6px 0 0"></div>
+  </div>
+
+  <div class="card">
+    <h2>Posture</h2>
+    <div class="book"><div class="leaf" id="leafL"></div><div class="leaf r" id="leafR"></div></div>
+    <div class="big" id="posture" style="font-size:30px;text-align:center">—</div>
+    <div class="sub" id="postureSrc" style="text-align:center;margin:4px 0 0"></div>
+  </div>
+
+  <div class="card">
+    <h2>Viewport segments (screens either side of the fold)</h2>
+    <div class="viz" id="viz"></div>
+    <div class="sub" id="segText" style="margin:8px 0 0"></div>
+  </div>
+
+  <div class="card">
+    <h2>Phone tilt (motion sensors, <i>not</i> the hinge)</h2>
+    <div id="tilt" class="sub" style="margin:0 0 8px">Not started.</div>
+    <button id="motionBtn">Enable motion sensors</button>
+  </div>
+
+  <div class="card" style="grid-column:1/-1">
+    <h2>What this browser supports</h2>
+    <table id="support"></table>
+  </div>
+
+  <div class="card">
+    <h2>Turn it on in Safari (iPhone Duo, iOS 27.1+)</h2>
+    <ol>
+      <li>Settings → Apps → Safari → Advanced → Feature Flags</li>
+      <li>Turn on <b>Device Posture API</b> and <b>Viewport Segments API</b></li>
+      <li>Reload this page over <b>https://</b></li>
+      <li>Open the phone and hold it half-folded like a book</li>
+    </ol>
+    <div class="sub">On Android foldables (Galaxy Z Fold, Pixel Fold), Chrome 138+ already has both APIs on by default.</div>
+  </div>
+
+  <div class="card">
+    <h2>Event log</h2>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+<div id="cssProbe"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const mq = q => { try { return matchMedia(q).matches; } catch(e){ return false; } };
+const mqKnown = q => { try { const m = matchMedia(q); return m.media !== 'not all' && m.media !== ''; } catch(e){ return false; } };
+const logEl = $('log');
+function log(m){ const t = new Date().toLocaleTimeString(); logEl.textContent = `${t}  ${m}\n` + logEl.textContent; }
+
+// ---------- Hinge angle: try every plausible source ----------
+let angle = null, angleSrc = '';
+const angleCandidates = ['HingeAngleSensor','HingeAngle','FoldAngleSensor','ScreenFoldSensor'];
+function tryAngleSensors(){
+  for (const name of angleCandidates){
+    if (typeof window[name] === 'function'){
+      try{
+        const s = new window[name]({frequency: 30});
+        s.addEventListener('reading', () => {
+          const v = s.angle ?? s.angleInDegrees ?? s.value;
+          if (typeof v === 'number'){ angle = v; angleSrc = name; render(); }
+        });
+        s.addEventListener('error', e => log(`${name} error: ${e.error && e.error.name}`));
+        s.start(); log(`Started ${name}`);
+      }catch(e){ log(`${name} exists but failed: ${e.message}`); }
+    }
+  }
+  // Old Screen Fold API draft (screen.fold.angle) — removed from spec, checked just in case
+  try{
+    if (screen.fold && typeof screen.fold.angle === 'number'){
+      angle = screen.fold.angle; angleSrc = 'screen.fold.angle';
+      screen.fold.addEventListener?.('change', () => { angle = screen.fold.angle; render(); });
+    }
+  }catch(e){}
+  try{
+    if (navigator.devicePosture && typeof navigator.devicePosture.angle === 'number'){ angleSrc = 'navigator.devicePosture.angle'; }
+  }catch(e){}
+}
+
+// ---------- Segments ----------
+function readSegments(){
+  try{
+    if (window.viewport && window.viewport.segments) return {src:'window.viewport.segments', segs:Array.from(window.viewport.segments)};
+  }catch(e){}
+  try{
+    if (window.visualViewport && window.visualViewport.segments) return {src:'visualViewport.segments (old Edge / Surface Duo)', segs:Array.from(window.visualViewport.segments)};
+  }catch(e){}
+  try{
+    if (typeof window.getWindowSegments === 'function') return {src:'getWindowSegments() (old draft)', segs:Array.from(window.getWindowSegments())};
+  }catch(e){}
+  return null;
+}
+function postureNow(){
+  try{ if (navigator.devicePosture && navigator.devicePosture.type) {
+    if (typeof navigator.devicePosture.angle === 'number'){ angle = navigator.devicePosture.angle; }
+    return {v:navigator.devicePosture.type, src:'navigator.devicePosture.type'}; } }catch(e){}
+  if (mq('(device-posture: folded)')) return {v:'folded', src:'@media (device-posture)'};
+  if (mq('(device-posture: continuous)')) return {v:'continuous', src:'@media (device-posture)'};
+  return {v:null, src:'Device Posture API not available'};
+}
+
+function render(){
+  // angle
+  if (angle != null){
+    $('angle').innerHTML = `${Math.round(angle)}°`;
+    $('angleNote').innerHTML = `Live from <code>${angleSrc}</code>.`;
+  } else {
+    $('angle').innerHTML = `<span class="no">Not exposed</span>`;
+    $('angleNote').innerHTML = `No web API in this browser reports the actual hinge angle. That includes Safari 27.1 on iPhone Duo: Apple only gives web pages the <b>posture</b> (folded or flat) and the <b>segment</b> rectangles. The W3C spec deliberately removed the angle for privacy. Native iOS/Android apps can read it; web pages can't.`;
+  }
+  // posture
+  const p = postureNow();
+  const pv = p.v;
+  $('posture').innerHTML = pv ? (pv === 'folded' ? '<span class="warn">Folded</span>' : '<span class="ok">Flat</span>') : '<span class="no">Unknown</span>';
+  $('postureSrc').innerHTML = pv ? `${pv === 'folded' ? 'Book or laptop pose (roughly 30°–170°)' : 'Fully open, fully closed, or not a foldable'} · <code>${p.src}</code>` : p.src;
+  const fold = pv === 'folded' ? 32 : 0;
+  $('leafL').style.transform = `rotateY(${fold}deg)`; $('leafR').style.transform = `rotateY(${-fold}deg)`;
+  // segments
+  const S = readSegments();
+  const viz = $('viz'); viz.innerHTML = '';
+  const vw = innerWidth, vh = innerHeight;
+  const box = viz.getBoundingClientRect(); const sc = Math.min((box.width-16)/vw, (box.height-16)/vh);
+  const ox = (box.width - vw*sc)/2, oy = (box.height - vh*sc)/2;
+  const segs = S ? S.segs : [{x:0,y:0,width:vw,height:vh}];
+  segs.forEach((r,i) => {
+    const d = document.createElement('div'); d.className = 'seg';
+    const x = r.x ?? r.left, y = r.y ?? r.top;
+    d.style.cssText = `left:${ox+x*sc}px;top:${oy+y*sc}px;width:${r.width*sc}px;height:${r.height*sc}px`;
+    d.innerHTML = `#${i}<br>${Math.round(r.width)}×${Math.round(r.height)}`;
+    viz.appendChild(d);
+  });
+  if (segs.length === 2){
+    const a = segs[0], b = segs[1], ax = a.x ?? a.left, ay = a.y ?? a.top, bx = b.x ?? b.left, by = b.y ?? b.top;
+    const h = document.createElement('div'); h.className = 'hinge';
+    if (Math.abs(ay - by) < 2){ const l = ax + a.width; h.style.cssText = `left:${ox+l*sc}px;top:${oy}px;width:${Math.max(2,(bx-l)*sc)}px;height:${vh*sc}px`; }
+    else { const t = ay + a.height; h.style.cssText = `left:${ox}px;top:${oy+t*sc}px;height:${Math.max(2,(by-t)*sc)}px;width:${vw*sc}px`; }
+    viz.appendChild(h);
+  }
+  let segTxt;
+  if (!S) segTxt = 'Viewport Segments API not available, so this is just the whole viewport.';
+  else if (S.segs.length < 2) segTxt = `<code>${S.src}</code> reports ${S.segs.length} segment(s): the page isn't spanning a fold right now. Half-fold the phone with Safari full-screen across both halves.`;
+  else {
+    const a = S.segs[0], b = S.segs[1];
+    const side = Math.abs((a.y??a.top) - (b.y??b.top)) < 2;
+    const gap = side ? (b.x??b.left) - ((a.x??a.left) + a.width) : (b.y??b.top) - ((a.y??a.top) + a.height);
+    segTxt = `<b class="ok">${S.segs.length} segments</b> via <code>${S.src}</code>, ${side ? 'side by side (book pose)' : 'stacked (laptop pose)'}, hinge gap ${Math.round(gap)}px.`;
+  }
+  $('segText').innerHTML = segTxt + ` Viewport ${vw}×${vh}.`;
+  renderSupport();
+}
+
+let motionState = 'not requested', lastTilt = null;
+function renderSupport(){
+  const rows = [
+    ['isSecureContext (HTTPS)', isSecureContext, 'needed for Device Posture'],
+    ['navigator.devicePosture', !!navigator.devicePosture],
+    ['@media (device-posture)', mqKnown('(device-posture: folded)') || mq('(device-posture)')],
+    ['window.viewport.segments', !!(window.viewport && 'segments' in window.viewport)],
+    ['@media (horizontal-viewport-segments: 2)', mq('(horizontal-viewport-segments: 2)') ? 'matches' : (mqKnown('(horizontal-viewport-segments: 1)') ? 'known' : false)],
+    ['@media (vertical-viewport-segments: 2)', mq('(vertical-viewport-segments: 2)') ? 'matches' : (mqKnown('(vertical-viewport-segments: 1)') ? 'known' : false)],
+    ['env(viewport-segment-width 0 0)', envSeg()],
+    ['visualViewport.segments (old Edge/Duo)', !!(window.visualViewport && 'segments' in window.visualViewport)],
+    ['getWindowSegments() (old draft)', typeof window.getWindowSegments === 'function'],
+    ['screen.fold.angle (removed draft)', !!(screen && screen.fold)],
+    ...angleCandidates.map(n => [n + ' (hinge angle sensor)', typeof window[n] === 'function']),
+    ['Generic Sensor API (Sensor)', typeof window.Sensor === 'function'],
+    ['DeviceOrientationEvent', typeof window.DeviceOrientationEvent === 'function', motionState],
+  ];
+  $('support').innerHTML = rows.map(([k,v,n]) => {
+    const yes = v === true || v === 'matches' || v === 'known' || (typeof v === 'string' && v.endsWith('px'));
+    const label = v === true ? 'Yes' : v === false || v == null ? 'No' : v;
+    return `<tr><td>${k}${n ? `<br><span style="color:var(--dim);font-family:inherit">${n}</span>` : ''}</td><td class="${yes ? 'ok' : 'no'}">${label}</td></tr>`;
+  }).join('');
+}
+function envSeg(){
+  const el = document.createElement('div');
+  el.style.cssText = 'position:absolute;visibility:hidden;width:env(viewport-segment-width 0 0, 0px)';
+  document.body.appendChild(el); const w = getComputedStyle(el).width; el.remove();
+  return w && w !== '0px' ? w : false;
+}
+
+// ---------- Motion (honest: phone tilt, not hinge) ----------
+function onOri(e){
+  lastTilt = e;
+  $('tilt').innerHTML = `β ${e.beta?.toFixed(0)}° · γ ${e.gamma?.toFixed(0)}° · α ${e.alpha?.toFixed(0) ?? '–'}°<br>This is how the whole phone is tilted. A web page only sees one set of motion sensors, so it can't work out the angle between the two halves.`;
+}
+$('motionBtn').onclick = async () => {
+  try{
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+      const r = await DeviceOrientationEvent.requestPermission(); motionState = r; log('Motion permission: ' + r);
+      if (r !== 'granted'){ $('tilt').textContent = 'Permission ' + r + '.'; renderSupport(); return; }
+    } else motionState = 'no prompt needed';
+    addEventListener('deviceorientation', onOri);
+    $('tilt').textContent = 'Listening… move the phone.'; $('motionBtn').disabled = true;
+  }catch(e){ motionState = 'error'; $('tilt').textContent = 'Could not start: ' + e.message; }
+  renderSupport();
+};
+
+// ---------- Wire up live updates ----------
+tryAngleSensors();
+if (navigator.devicePosture){ navigator.devicePosture.addEventListener('change', () => { log('posture → ' + navigator.devicePosture.type); render(); }); }
+['(device-posture: folded)','(horizontal-viewport-segments: 2)','(vertical-viewport-segments: 2)'].forEach(q => {
+  try{ matchMedia(q).addEventListener('change', e => { log(`${q} → ${e.matches}`); render(); }); }catch(e){}
+});
+addEventListener('resize', render);
+addEventListener('orientationchange', render);
+try{ window.viewport?.addEventListener?.('segmentschange', () => { log('segmentschange'); render(); }); }catch(e){}
+setInterval(render, 1000);
+render();
+log(`Loaded. ${navigator.userAgent}`);
+window.__hinge = { readSegments, postureNow, get angle(){ return angle; } };
+})();
+</script>
+</body>
+</html>

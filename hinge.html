@@ -9,7 +9,21 @@
   :root{--bg:#07060f;--card:#120f24;--ink:#e9e6ff;--dim:#9a94c4;--ok:#3df5c4;--no:#ff4f9a;--warn:#ffd34d}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
-    padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 40px max(16px,env(safe-area-inset-left))}
+    padding:0 0 40px}
+  #flash{position:fixed;inset:0;z-index:9999;pointer-events:none;background:#fff;opacity:0;transition:opacity .4s ease-out}
+  #flash.go{opacity:.92;transition:none}
+  #banner{min-height:100dvh;display:flex;flex-direction:column;padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));background:#ffd34d;color:#04131a}
+  #banner.flat{background:#3df5c4}
+  #banner.folded{background:#ff2f86;color:#fff}
+  #bannerKicker{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;opacity:.72}
+  #bannerWord{font-size:clamp(76px,24vw,148px);font-weight:900;letter-spacing:-.05em;line-height:.84;margin:6px 0 8px}
+  #bannerType,#bannerMeta{font-family:ui-monospace,Menlo,monospace;font-size:13px;font-weight:700}
+  #bannerCount{font-size:clamp(28px,7vw,44px);font-weight:850;letter-spacing:-.03em;margin-top:18px;line-height:1.05}
+  #bannerRects{font-family:ui-monospace,Menlo,monospace;font-size:16px;font-weight:700;white-space:pre-wrap;line-height:1.35;margin-top:6px}
+  .toplog{margin-top:18px}
+  .toplog h2{margin:0 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.7}
+  .toplog .log{max-height:26vh;background:#07060fe6;color:#efeaff;border-radius:14px;padding:10px 12px;font-size:12px}
+  .page{padding:16px max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left))}
   h1{font-size:22px;margin:4px 0 2px}
   .sub{color:var(--dim);font-size:13px;margin-bottom:14px}
   .grid{display:grid;gap:12px;grid-template-columns:1fr}
@@ -43,6 +57,20 @@
 </style>
 </head>
 <body>
+<div id="flash" aria-hidden="true"></div>
+<section id="banner">
+  <div id="bannerKicker">navigator.devicePosture.type</div>
+  <div id="bannerWord">…</div>
+  <div id="bannerType"></div>
+  <div id="bannerCount"></div>
+  <div id="bannerRects"></div>
+  <div id="bannerMeta"></div>
+  <div class="toplog">
+    <h2>Event log</h2>
+    <div class="log" id="log"></div>
+  </div>
+</section>
+<div class="page">
 <h1>Hinge diagnostics</h1>
 <div class="sub">Live readout of everything this browser will tell a web page about a fold. Built for Safari on iPhone Duo, works on any browser. <a href="index.html">← Back to the game</a></div>
 
@@ -88,12 +116,9 @@
     <div class="sub">On Android foldables (Galaxy Z Fold, Pixel Fold), Chrome 138+ already has both APIs on by default.</div>
   </div>
 
-  <div class="card">
-    <h2>Event log</h2>
-    <div class="log" id="log"></div>
-  </div>
 </div>
 <div id="cssProbe"></div>
+</div>
 
 <script>
 (() => {
@@ -102,7 +127,98 @@ const $ = id => document.getElementById(id);
 const mq = q => { try { return matchMedia(q).matches; } catch(e){ return false; } };
 const mqKnown = q => { try { const m = matchMedia(q); return m.media !== 'not all' && m.media !== ''; } catch(e){ return false; } };
 const logEl = $('log');
-function log(m){ const t = new Date().toLocaleTimeString(); logEl.textContent = `${t}  ${m}\n` + logEl.textContent; }
+function stamp(){
+  const d = new Date(), p = n => String(n).padStart(2,'0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`;
+}
+function log(m){
+  logEl.textContent = `${stamp()}  ${m}\n` + logEl.textContent;
+  if (logEl.textContent.length > 24000) logEl.textContent = logEl.textContent.slice(0, 20000);
+}
+function rectPlain(r){
+  const o = {};
+  for (const k of ['x','y','width','height','left','top','right','bottom']){
+    if (r && typeof r[k] === 'number') o[k] = r[k];
+  }
+  if (o.x == null && o.left != null) o.x = o.left;
+  if (o.y == null && o.top != null) o.y = o.top;
+  return o;
+}
+function fmt(n){ return typeof n === 'number' ? String(Math.round(n * 10) / 10) : '–'; }
+function orientationNow(){
+  try {
+    const o = screen.orientation;
+    if (o) return {type: o.type ?? null, angle: o.angle ?? null};
+  } catch(e){ return {error: e.message}; }
+  return null;
+}
+function takeSnap(){
+  let type = null, typeErr = '';
+  try {
+    if (navigator.devicePosture) type = navigator.devicePosture.type ?? null;
+  } catch(e){ typeErr = e.message; }
+  const S = readSegments();
+  const rects = S ? S.segs.map(rectPlain) : null;
+  const segsJSON = rects == null ? 'null' : JSON.stringify(rects);
+  const orientation = orientationNow();
+  const media = {
+    folded: mq('(device-posture: folded)'),
+    h2: mq('(horizontal-viewport-segments: 2)'),
+    v2: mq('(vertical-viewport-segments: 2)'),
+  };
+  const key = JSON.stringify({type, typeErr, segsJSON, w: innerWidth, h: innerHeight, orientation, media, src: S && S.src});
+  return {type, typeErr, segs: S, rects, segsJSON, w: innerWidth, h: innerHeight, orientation, media, key};
+}
+function wordFor(type){
+  if (type === 'folded') return 'FOLDED';
+  if (type === 'continuous') return 'FLAT';
+  if (type == null || type === '') return 'NO TYPE';
+  return String(type).toUpperCase();
+}
+function paintBanner(snap){
+  const b = $('banner');
+  b.classList.toggle('folded', snap.type === 'folded');
+  b.classList.toggle('flat', snap.type === 'continuous');
+  b.classList.toggle('unknown', snap.type !== 'folded' && snap.type !== 'continuous');
+  $('bannerWord').textContent = wordFor(snap.type);
+  $('bannerType').textContent = snap.typeErr
+    ? 'navigator.devicePosture threw: ' + snap.typeErr
+    : (navigator.devicePosture
+        ? 'navigator.devicePosture.type = ' + JSON.stringify(snap.type)
+        : 'navigator.devicePosture is missing');
+  const n = snap.rects ? snap.rects.length : null;
+  $('bannerCount').textContent = n == null ? 'segments unavailable' : `${n} segment${n === 1 ? '' : 's'}`;
+  $('bannerRects').textContent = snap.rects
+    ? snap.rects.map((r,i) => `#${i}  x:${fmt(r.x)}  y:${fmt(r.y)}  ${fmt(r.width)}×${fmt(r.height)}`).join('\n')
+    : (snap.segs ? '' : 'window.viewport.segments is missing');
+  const o = snap.orientation;
+  const ori = o && o.type != null ? `${o.type} ${o.angle}` : 'n/a';
+  $('bannerMeta').textContent = `${snap.w}×${snap.h}   orientation ${ori}   checked ${stamp()}`;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', snap.type === 'folded' ? '#ff2f86' : snap.type === 'continuous' ? '#3df5c4' : '#ffd34d');
+}
+let lastKey = null, flashCount = 0, flashTimer = 0;
+function flash(){
+  flashCount++;
+  const el = $('flash');
+  el.classList.remove('go');
+  void el.offsetWidth;
+  el.classList.add('go');
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => el.classList.remove('go'), 90);
+}
+function logChange(trigger, snap){
+  const o = snap.orientation;
+  const ori = o && o.type != null ? `${o.type} ${o.angle}` : JSON.stringify(o);
+  const lines = [
+    `${stamp()}  ${trigger}`,
+    `  posture: ${snap.typeErr ? 'error ' + snap.typeErr : JSON.stringify(snap.type)}`,
+    `  segments: ${snap.segsJSON}`,
+    `  viewport: ${snap.w}×${snap.h}`,
+    `  screen.orientation: ${ori}`,
+  ];
+  log(lines.join('\n').replace(/^\d\d:\d\d:\d\d\.\d\d\d  /, ''));
+}
 
 // ---------- Hinge angle: try every plausible source ----------
 let angle = null, angleSrc = '';
@@ -156,6 +272,7 @@ function postureNow(){
 }
 
 function render(){
+  paintBanner(takeSnap());
   // angle
   if (angle != null){
     $('angle').innerHTML = `${Math.round(angle)}°`;
@@ -253,18 +370,35 @@ $('motionBtn').onclick = async () => {
 };
 
 // ---------- Wire up live updates ----------
+// Events first, then a 250ms poll, because Safari 27.1 on iPhone Duo can leave
+// devicePosture / viewport.segments stale when the change listeners never fire.
+function consider(trigger){
+  const snap = takeSnap();
+  if (snap.key === lastKey){ paintBanner(snap); return; }
+  lastKey = snap.key;
+  logChange(trigger, snap);
+  flash();
+  render();
+}
 tryAngleSensors();
-if (navigator.devicePosture){ navigator.devicePosture.addEventListener('change', () => { log('posture → ' + navigator.devicePosture.type); render(); }); }
-['(device-posture: folded)','(horizontal-viewport-segments: 2)','(vertical-viewport-segments: 2)'].forEach(q => {
-  try{ matchMedia(q).addEventListener('change', e => { log(`${q} → ${e.matches}`); render(); }); }catch(e){}
+try { if (navigator.devicePosture) navigator.devicePosture.addEventListener('change', () => consider('devicePosture')); } catch(e){}
+[
+  '(device-posture: folded)',
+  '(horizontal-viewport-segments: 1)',
+  '(horizontal-viewport-segments: 2)',
+  '(vertical-viewport-segments: 1)',
+  '(vertical-viewport-segments: 2)',
+].forEach(q => {
+  try { matchMedia(q).addEventListener('change', () => consider('matchMedia ' + q)); } catch(e){}
 });
-addEventListener('resize', render);
-addEventListener('orientationchange', render);
-try{ window.viewport?.addEventListener?.('segmentschange', () => { log('segmentschange'); render(); }); }catch(e){}
-setInterval(render, 1000);
-render();
+addEventListener('resize', () => consider('resize'));
+addEventListener('orientationchange', () => consider('orientationchange'));
+try { window.visualViewport && window.visualViewport.addEventListener('resize', () => consider('visualViewport.resize')); } catch(e){}
+try { window.viewport?.addEventListener?.('segmentschange', () => consider('segmentschange')); } catch(e){}
+setInterval(() => consider('poll'), 250);
 log(`Loaded. ${navigator.userAgent}`);
-window.__hinge = { readSegments, postureNow, get angle(){ return angle; } };
+consider('load');
+window.__hinge = { readSegments, postureNow, takeSnap, consider, get angle(){ return angle; }, get flashes(){ return flashCount; } };
 })();
 </script>
 </body>

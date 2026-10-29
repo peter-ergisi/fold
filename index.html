@@ -390,7 +390,13 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; keys[k] = false; });
 
-function toggleFake(){ fakeFold = !fakeFold; $('foldBtn').textContent = fakeFold ? 'Unfold' : 'Fake fold'; say(fakeFold ? 'FOLD MODE' : 'FLAT'); }
+function notePosture(){
+  const p = getPosture();
+  if (p === saidPosture) return;
+  saidPosture = p;
+  say(p === 'folded' ? 'FOLD MODE' : 'FLAT');
+}
+function toggleFake(){ fakeFold = !fakeFold; $('foldBtn').textContent = fakeFold ? 'Unfold' : 'Fake fold'; notePosture(); }
 $('foldBtn').onclick = toggleFake;
 $('muteBtn').onclick = () => { muted = !muted; $('muteBtn').textContent = muted ? 'Sound off' : 'Sound on'; };
 $('play').onclick = start;
@@ -400,10 +406,37 @@ function relayout(){
   computeLayout(); sizes();
   ball.x = fx*L; ball.y = fy*Wd; pad.y = pf*Wd; cpu.y = cf*Wd; ball.side = ball.x < (h0+h1)/2 ? 0 : 1;
 }
+// Same 250ms fallback as hinge.html: Safari 27.1 can update posture and
+// viewport.segments without firing change / segmentschange / resize.
+function foldSignature(){
+  let type = '';
+  try { type = (navigator.devicePosture && navigator.devicePosture.type) || ''; } catch(e){ type = 'err'; }
+  let seg = '';
+  try {
+    let s = null;
+    if (window.viewport && window.viewport.segments) s = window.viewport.segments;
+    else if (window.visualViewport && window.visualViewport.segments) s = window.visualViewport.segments;
+    if (s) seg = Array.from(s).map(r => [r.x ?? r.left, r.y ?? r.top, r.width, r.height].join(',')).join(';');
+  } catch(e){ seg = 'err'; }
+  let mqFold = 0;
+  try { mqFold = matchMedia('(device-posture: folded)').matches ? 1 : 0; } catch(e){}
+  return [type, seg, innerWidth, innerHeight, mqFold, fakeFold ? 1 : 0].join('|');
+}
+let saidPosture = null, foldSig = '';
+function pollFold(){
+  const next = foldSignature();
+  if (next === foldSig) return;
+  foldSig = next;
+  relayout();
+  notePosture();
+}
 addEventListener('resize', relayout);
 if (window.viewport && window.viewport.addEventListener) try{ window.viewport.addEventListener('segmentschange', relayout); }catch(e){}
-if (navigator.devicePosture) navigator.devicePosture.addEventListener('change', () => { relayout(); say(getPosture()==='folded' ? 'FOLD MODE' : 'FLAT'); });
-matchMedia('(device-posture: folded)').addEventListener?.('change', relayout);
+if (navigator.devicePosture) navigator.devicePosture.addEventListener('change', () => { relayout(); notePosture(); });
+matchMedia('(device-posture: folded)').addEventListener?.('change', () => { relayout(); notePosture(); });
+foldSig = foldSignature();
+saidPosture = getPosture();
+setInterval(pollFold, 250);
 document.addEventListener('visibilitychange', () => { if (document.hidden && S.running) S.paused = true; });
 
 const found = [api.segments && 'Viewport Segments', api.legacySegments && 'visualViewport.segments', (api.posture||api.cssPosture) && 'Device Posture'].filter(Boolean);
@@ -412,7 +445,7 @@ $('apiNote').innerHTML = (found.length ? 'Foldable APIs found: ' + found.join(',
   + ' <a href="hinge.html">Hinge diagnostics →</a>';
 
 computeLayout(); sizes(); pad.y = cpu.y = Wd/2; serve(1);
-window.__overTheFold = { S, ball, api, getSegments, getPosture, layout: () => ({layout, L, Wd, h0, h1, real}) };
+window.__overTheFold = { S, ball, api, getSegments, getPosture, foldSignature, layout: () => ({layout, L, Wd, h0, h1, real}) };
 requestAnimationFrame(loop);
 })();
 </script>
